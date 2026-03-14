@@ -1,28 +1,74 @@
-# SecureVault - Gestor de Contraseñas Local
+# SecureVault - Proyecto Integrador de Ciberseguridad
 
-Este repositorio forma parte del proyecto integrador y contiene el desarrollo de una bóveda local segura para la gestión de contraseñas. 
+SecureVault es un gestor de contraseñas de alta seguridad que utiliza reconocimiento facial biométrico (Face ID) para el acceso y gestión de credenciales. El proyecto está diseñado con un enfoque "Premium" de ciberseguridad, garantizando que cada usuario tenga una bóveda privada e inaccesible para otros.
 
-A continuación se detallan las funcionalidades principales integradas en la aplicación:
+## 🛠️ Herramientas Utilizadas
 
-## 🔒 Base de Datos Local Encriptada
-Almacenamiento local completamente cifrado que se ejecuta del lado del cliente. Utiliza tecnologías como **IndexedDB** para la persistencia de datos y la **Web Crypto API** nativa del navegador para aplicar cifrado de grado militar (AES-256-GCM y PBKDF2). Las contraseñas nunca se guardan en texto plano en la aplicación, garantizando máxima privacidad y operabilidad offline.
+El proyecto utiliza un stack tecnológico moderno y robusto:
 
-## 🌐 Catálogo Integrado de Sitios
-A la hora de añadir una nueva contraseña, el sistema despliega un catálogo con los servicios y plataformas más populares (tales como Google, Netflix, GitHub, Facebook, etc.). Cada servicio viene preconfigurado con su ícono y URL oficial correspondiente, agilizando el proceso de registro y previniendo enlaces erróneos o phishing.
+- **Biometría de Vanguardia (Face ID Engine)**: 
+  Se utiliza la librería **[face-api.js](https://github.com/justadudewhohacks/face-api.js)**, la cual implementa redes neuronales convolucionales (CNN) directamente en el navegador sobre **TensorFlow.js**. El sistema opera mediante tres modelos críticos:
+  - **SSD Mobilenet v1**: Un detector de rostros de alta precisión que localiza las cajas delimitadoras de cada cara en el video en tiempo real.
+  - **Face Landmark 68**: Un modelo que identifica 68 puntos faciales específicos (ojos, cejas, nariz, boca y contorno mandibular), permitiendo la alineación facial perfecta y la detección de ángulos.
+  - **Face Recognition (ResNet-34)**: Genera un "descriptor" único de 128 números (vector de características) que representa la huella digital del rostro. Este descriptor es el que se compara matemáticamente para autenticar al usuario con un margen de error mínimo.
+  
+- **Desarrollo Frontend**: 
+  - **[React 18](https://reactjs.org/)**: Motor de la interfaz basado en componentes funcionales y Hooks para una gestión de estado eficiente.
+  - **[TypeScript](https://www.typescriptlang.org/)**: Garantiza la integridad de los datos mediante tipado estático, crucial para manejar estructuras complejas como los descriptores biométricos y las entradas cifradas.
+  - **[Vite 6](https://vitejs.dev/)**: Herramienta de nueva generación para el empaquetado y HMR (Hot Module Replacement), optimizando el ciclo de desarrollo y la carga de modelos pesados de IA.
 
-## 🔑 Generador de Contraseñas Inteligente
-Consiste en una herramienta sumamente personalizable integrada al proceso de creación de cuentas para sugerir contraseñas robustas y aleatorias con un solo clic.
-* **Ajuste Dinámico:** Permite elegir la longitud del texto y forzar el uso de mayúsculas, minúsculas, números y símbolos.
-* **Feedback y Pruebas:** Mide e indica visualmente el nivel de "fortaleza" de la contraseña sugerida (Fuerte, Media, Débil).
-* Proporciona atajos rápidos para copiar la clave generada o ser redirigido directamente al sitio oficial correspondiente.
+- **Diseño y Experiencia de Usuario (UI/UX)**:
+  - **[Tailwind CSS 4](https://tailwindcss.com/)**: Motor de estilos por utilidad que permite crear una estética "Cyber-Dark" con efectos de desenfoque gausiano (glassmorphism) e iluminación de acento.
+  - **[Motion](https://motion.dev/)**: Biblioteca de animaciones para React que gestiona los estados de entrada/salida y las micro-interacciones que dan una sensación "Premium" y fluida al software.
+  - **[Lucide React](https://lucide.dev/)**: Set de iconos optimizados para ciberseguridad.
 
-## 📂 Dashboard Dinámico con Agrupación
-El panel de control (dashboard principal) se alimenta directamente y en tiempo real de las cuentas encriptadas en la base de datos.
-* **Agrupación tipo Acordeón:** Si un usuario tiene múltiples cuentas asociadas a la misma plataforma (por ejemplo, tres direcciones de correo distintas para Gmail), el sistema las agrupa sabiamente en un único componente expandible, para mantener la bóveda limpia y organizada.
-* **Acciones Rápidas:** Botones integrados para copiar contraseñas guardadas al portapapeles (desencriptando al instante) y abrir nuevas pestañas al sitio destino.
-* **Búsqueda Funcional:** Una barra de búsqueda responsiva que filtra visualmente las cuentas al vuelo basada en nombres, correos o nombres de los sitios.
+- **Almacenamiento y Seguridad de Datos**:
+  - **[IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)**: Base de datos NoSQL embebida en el navegador. Se utiliza para persistir las contraseñas y perfiles de usuario de forma local, evitando que los datos sensibles salgan del dispositivo del usuario.
+  - **Web Crypto API**: Estándar nativo para operaciones criptográficas. Implementamos **AES-GCM** (Advanced Encryption Standard - Galois/Counter Mode) para el cifrado de las contraseñas y **PBKDF2** para la derivación de claves seguras basadas en el perfil biométrico.
+  - **Recharts**: Librería de visualización técnica para monitorear el estado de seguridad de la bóveda mediante gráficas dinámicas.
 
-## ⚙️ Respaldos y Configuración (Importar / Exportar)
-Una suite de herramientas para que el usuario siempre mantenga el control sobre sus datos.
-* **Exportación de Bóveda:** Función que compila todas las contraseñas encriptadas de IndexedDB y genera automáticamente un fichero de respaldo descargable (`.kdbx`), el cual continúa cifrado y protegido frente a cualquier ataque local.
-* **Restauración:** Permite cargar dicho fichero previamente generado al sistema para restaurar por completo la bóveda en otro navegador u equipo sin perder configuraciones ni cuentas.
+## 📁 Estructura del Proyecto
+
+El repositorio se organiza de la siguiente manera:
+
+```text
+Proyecto-Integrador/
+├── Inicio/                      # Aplicación Principal (Gestor de Contraseñas)
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── components/      # Componentes de UI (Login, Registro, Dashboard, Modales)
+│   │   │   ├── data/            # Catálogo de sitios predefinidos
+│   │   │   ├── lib/             # Lógica de Base de Datos y Criptografía
+│   │   │   ├── types/           # Definición de interfaces TypeScript
+│   │   │   └── utils/           # Utilidades y cargadores de modelos de AI
+│   │   └── models/              # Modelos de Face-API.js entrenados
+│   ├── public/                  # Activos estáticos
+│   └── package.json             # Dependencias y scripts
+├── Diseño de dashboard/         # Bocetos y propuestas iniciales de diseño
+```
+
+## 📖 Explicación de Apartados
+
+### 1. Acceso Biométrico (Face ID)
+El sistema no utiliza contraseñas tradicionales para el login. En su lugar:
+- **Registro**: Se capturan 3 ángulos del rostro (frontal, izquierdo, derecho) para crear un perfil biométrico único.
+- **Login**: Un escaneo facial en vivo compara el rostro actual con los descriptores almacenados. Si la confianza es alta, se concede el acceso.
+
+### 2. Dashboard de Ciberseguridad
+Una interfaz intuitiva que muestra:
+- **Resumen Estadístico**: Número de contraseñas guardadas y estado de sincronización.
+- **Bóveda de Contraseñas**: Lista organizada de cuentas con búsqueda inteligente.
+- **Seguridad Multiusuario**: Cada usuario que se registra tiene su propia base de datos aislada por un `userId` único.
+
+### 3. Gestión de Contraseñas
+- **Catálogo de Sitios**: Permite añadir cuentas rápidamente usando una lista de sitios populares o agregando sitios personalizados con iconos por defecto.
+- **Generador de Contraseñas**: Herramienta integrada para crear claves robustas y seguras.
+- **Cifrado**: Las contraseñas nunca se almacenan en texto plano; se cifran usando AES-GCM con una clave derivada del perfil.
+
+### 4. Configuración y Seguridad
+- **Perfil de Usuario**: Gestión de la información del usuario autenticado.
+- **Personalización**: Ajustes visuales y de comportamiento de la bóveda.
+- **Cierre de Sesión Seguro**: Limpia el estado de la aplicación y redirige al inicio para evitar accesos no autorizados.
+
+---
+*Este proyecto es parte del Proyecto Integrador centrado en la seguridad de datos y autenticación avanzada.*

@@ -1,7 +1,9 @@
 import { useNavigate } from "react-router";
-import { motion } from "motion/react";
-import { useState } from "react";
-import { ArrowLeft, Camera, Mail, User, Check } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { ArrowLeft, Camera, Mail, User, Check, AlertCircle } from "lucide-react";
+import * as faceapi from "face-api.js";
+import { loadModels } from "../utils/loadModels";
 
 export function Register() {
   const navigate = useNavigate();
@@ -10,30 +12,123 @@ export function Register() {
   const [email, setEmail] = useState("");
   const [captureStep, setCaptureStep] = useState<"frontal" | "left" | "right" | null>(null);
   const [completedCaptures, setCompletedCaptures] = useState<string[]>([]);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [detectError, setDetectError] = useState<string | null>(null);
+  const [descriptors, setDescriptors] = useState<Float32Array[]>([]);
+
+  const captureStepRef = useRef(captureStep);
+  const completedCapturesRef = useRef(completedCaptures);
+  const descriptorsRef = useRef(descriptors);
+
+  useEffect(() => {
+    captureStepRef.current = captureStep;
+    completedCapturesRef.current = completedCaptures;
+    descriptorsRef.current = descriptors;
+  }, [captureStep, completedCaptures, descriptors]);
 
   const handleCapture = () => {
     if (step === 2 && name && email) {
-      setCaptureStep("frontal");
       setStep(3);
+      setCaptureStep("frontal");
     }
   };
 
-  const simulateCapture = (position: "frontal" | "left" | "right") => {
+  const finalizeRegistration = useCallback((finalDescriptors: Float32Array[]) => {
+    const userId = crypto.randomUUID();
+    const userToSave = {
+      id: userId,
+      name,
+      email,
+      descriptors: finalDescriptors.map(d => Array.from(d))
+    };
+
+    const existingUsers = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
+    existingUsers.push(userToSave);
+    localStorage.setItem("secureFace_users", JSON.stringify(existingUsers));
+
     setTimeout(() => {
-      setCompletedCaptures([...completedCaptures, position]);
-      
-      if (position === "frontal") {
-        setCaptureStep("left");
-      } else if (position === "left") {
-        setCaptureStep("right");
-      } else {
-        // Completado
-        setTimeout(() => {
-          navigate("/success");
-        }, 1000);
+      navigate("/success", { state: { userId, userName: name } });
+    }, 1000);
+  }, [name, email, navigate]);
+
+  useEffect(() => {
+    let isActive = true;
+    let scanTimeout: any;
+
+    const startWebcamAndScan = async () => {
+      try {
+        await loadModels();
+        if (!isActive) return;
+        setModelsLoaded(true);
+
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (videoRef.current && isActive) {
+          videoRef.current.srcObject = stream;
+        }
+
+        const scanFace = async () => {
+          if (!isActive) return;
+          if (videoRef.current && videoRef.current.readyState === 4) {
+            const currentStep = captureStepRef.current;
+            if (currentStep && !completedCapturesRef.current.includes(currentStep)) {
+              try {
+                const detection = await faceapi.detectSingleFace(videoRef.current, new faceapi.SsdMobilenetv1Options())
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+
+                if (detection) {
+                  setDetectError(null);
+                  
+                  const newDescriptors = [...descriptorsRef.current, detection.descriptor];
+                  setDescriptors(newDescriptors);
+                  descriptorsRef.current = newDescriptors;
+
+                  const newCompleted = [...completedCapturesRef.current, currentStep];
+                  setCompletedCaptures(newCompleted);
+                  completedCapturesRef.current = newCompleted;
+
+                  if (currentStep === "frontal") {
+                    setCaptureStep("left");
+                  } else if (currentStep === "left") {
+                    setCaptureStep("right");
+                  } else if (currentStep === "right") {
+                    finalizeRegistration(newDescriptors);
+                    return; 
+                  }
+                } else {
+                  setDetectError("No se detecta rostro. Ajusta tu posición e iluminación.");
+                }
+              } catch (err) {
+                console.error("Error during detection", err);
+              }
+            }
+          }
+          // Scan again after a brief pause
+          scanTimeout = setTimeout(scanFace, 1500); 
+        };
+
+        scanTimeout = setTimeout(scanFace, 1000);
+      } catch (err) {
+        setDetectError("Error al acceder a la cámara o cargar modelos.");
+        console.error(err);
       }
-    }, 2000);
-  };
+    };
+
+    if (step === 3) {
+      startWebcamAndScan();
+    }
+
+    return () => {
+      isActive = false;
+      if (scanTimeout) clearTimeout(scanTimeout);
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [step, finalizeRegistration]);
 
   const steps = [
     { number: 1, label: "Datos", icon: User },
@@ -249,46 +344,54 @@ export function Register() {
           >
             {/* Vista de cámara */}
             <div className="relative aspect-[3/4] bg-gradient-to-b from-[#1E293B] to-[#0F172A] rounded-3xl overflow-hidden border border-[#00D4FF]/30">
-              {/* Simulación de rostro */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <motion.svg
-                  className="w-48 h-48 text-[#00D4FF]/30"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  animate={{
-                    rotateY: captureStep === "left" ? -45 : captureStep === "right" ? 45 : 0,
-                  }}
-                  transition={{ duration: 0.5 }}
-                  style={{ transformStyle: "preserve-3d" }}
-                >
-                  <circle cx="12" cy="10" r="3" />
-                  <path d="M12 14c-4 0-7 2-7 4v2h14v-2c0-2-3-4-7-4z" />
-                  <ellipse cx="9" cy="9" rx="0.5" ry="0.8" fill="currentColor" />
-                  <ellipse cx="15" cy="9" rx="0.5" ry="0.8" fill="currentColor" />
-                </motion.svg>
-              </div>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ transform: "scaleX(-1)" }} // mirror
+              />
+
+              {!modelsLoaded && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0F172A]/80 z-10">
+                  <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="w-8 h-8 border-2 border-[#00D4FF] border-t-transparent rounded-full mb-4"></motion.div>
+                  <p className="text-[#00D4FF] text-sm">Iniciando cámara y AI...</p>
+                </div>
+              )}
 
               {/* Marco de captura */}
-              <div className="absolute inset-0 m-8 border-2 border-[#00FF9D] rounded-2xl">
+              <div className="absolute inset-0 m-8 border-2 border-[#00FF9D] rounded-2xl z-20 pointer-events-none">
                 <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-[#00FF9D] rounded-tl-2xl animate-pulse"></div>
                 <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-[#00FF9D] rounded-tr-2xl animate-pulse"></div>
                 <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-[#00FF9D] rounded-bl-2xl animate-pulse"></div>
                 <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-[#00FF9D] rounded-br-2xl animate-pulse"></div>
               </div>
 
-              {/* Efecto de captura */}
-              {!completedCaptures.includes(captureStep) && (
-                <motion.div
-                  className="absolute inset-0 bg-[#00FF9D]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: [0, 0.5, 0] }}
-                  transition={{ duration: 0.5, delay: 1.5 }}
-                  onAnimationComplete={() => simulateCapture(captureStep)}
-                ></motion.div>
-              )}
+              {/* Efecto de flash por estado completo */}
+              <AnimatePresence>
+                {completedCaptures.length > 0 && (
+                  <motion.div
+                    key={completedCaptures.length}
+                    className="absolute inset-0 bg-[#00FF9D] z-30 pointer-events-none"
+                    initial={{ opacity: 0.5 }}
+                    animate={{ opacity: 0 }}
+                    transition={{ duration: 0.5 }}
+                  ></motion.div>
+                )}
+              </AnimatePresence>
             </div>
+
+            {/* Error Message */}
+            {detectError && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} 
+                className="bg-red-500/10 border border-red-500/50 text-red-400 p-3 rounded-xl flex items-center gap-2 text-sm justify-center"
+              >
+                <AlertCircle className="w-4 h-4" />
+                <span>{detectError}</span>
+              </motion.div>
+            )}
 
             {/* Instrucciones */}
             <div className="text-center space-y-4">

@@ -1,12 +1,14 @@
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { motion } from "motion/react";
 import { CheckCircle, ArrowRight } from "lucide-react";
-import { useEffect, useState } from "react";
 
 export function Success() {
   const navigate = useNavigate();
-  const [userName] = useState("Usuario Demo");
-  const [confidence] = useState(98.7);
+  const location = useLocation();
+  const userName = location.state?.userName || "Usuario Demo";
+  const userId = location.state?.userId || "user-1";
+  const confidence: number | null = location.state?.confidence ?? null;
+  const authTime = new Date();
 
   return (
     <div className="min-h-screen bg-[#0F172A] text-white flex items-center justify-center p-6 relative overflow-hidden">
@@ -121,7 +123,7 @@ export function Success() {
                     transition={{ delay: 0.7, type: "spring" }}
                     className="text-[#00FF9D] text-xl"
                   >
-                    {confidence}%
+                    {confidence !== null ? `${confidence}%` : "–"}
                   </motion.span>
                 </div>
 
@@ -133,14 +135,14 @@ export function Success() {
                 <div className="flex items-center justify-between">
                   <span className="text-[#F1F5F9]/70 text-sm">Fecha:</span>
                   <span className="text-[#F1F5F9] font-medium">
-                    {new Date().toLocaleDateString('es-ES')}
+                    {authTime.toLocaleDateString('es-ES')}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-[#F1F5F9]/70 text-sm">Hora:</span>
                   <span className="text-[#F1F5F9] font-medium">
-                    {new Date().toLocaleTimeString('es-ES')}
+                    {authTime.toLocaleTimeString('es-ES')}
                   </span>
                 </div>
               </div>
@@ -174,7 +176,7 @@ export function Success() {
             transition={{ delay: 1 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navigate("/dashboard", { state: { userId, userName } })}
             className="w-full bg-gradient-to-r from-[#00FF9D] to-[#00D4FF] text-[#0F172A] py-4 rounded-xl flex items-center justify-center gap-3 shadow-lg shadow-[#00FF9D]/30 hover:shadow-[#00FF9D]/50 transition-all"
           >
             <span className="text-lg">Continuar</span>
