@@ -33,6 +33,13 @@ export function Register() {
 
   const handleCapture = () => {
     if (step === 2 && name && email) {
+      // Validar que el nombre no exista ya para evitar colisiones biométricas
+      const existingUsers = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
+      if (existingUsers.some((u: any) => u.name.toLowerCase() === name.toLowerCase())) {
+        setDetectError("Ya existe un usuario con este nombre. Por favor usa uno diferente.");
+        setStep(1);
+        return;
+      }
       setStep(3);
       setCaptureStep("frontal");
     }

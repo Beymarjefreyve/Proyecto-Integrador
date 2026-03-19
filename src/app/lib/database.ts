@@ -5,6 +5,27 @@
 import type { PasswordEntry, UserProfile } from '../types';
 import { encrypt, decrypt, generateSalt } from './crypto';
 import * as kdbxweb from 'kdbxweb';
+// @ts-ignore: El paquete no exporta tipos correctos para la versión bundled minificada
+import argon2 from 'argon2-browser/dist/argon2-bundled.min.js';
+
+// Inicializar el soporte de Argon2 para KDBX modernos mediante un wrapper compatible
+try {
+  kdbxweb.CryptoEngine.setArgon2Impl(async (password, salt, memory, iterations, length, parallelism, type, version) => {
+    const result = await argon2.hash({
+      pass: new Uint8Array(password),
+      salt: new Uint8Array(salt),
+      time: iterations,
+      mem: memory,
+      hashLen: length,
+      parallelism: parallelism,
+      type: type
+    });
+    // Retornamos un ArrayBuffer nuevo para evitar problemas de referencias al pool de WebAssembly
+    return new Uint8Array(result.hash).buffer;
+  });
+} catch (err) {
+  console.warn('Failed to initialize Argon2 support for kdbxweb', err);
+}
 
 const DB_NAME = 'SecureVaultDB';
 const DB_VERSION = 2;
@@ -246,15 +267,31 @@ export async function getUserProfile(userId?: string): Promise<UserProfile | und
   });
 }
 
-/** Eliminar el perfil de usuario y todas sus datos */
-export async function deleteUserProfile(): Promise<void> {
+/** Eliminar el perfil de usuario y todas sus datos aislados */
+export async function deleteUserProfile(userId: string): Promise<void> {
   const db = await openDB();
   const tx = db.transaction([STORE_USER, STORE_PASSWORDS], 'readwrite');
   
-  tx.objectStore(STORE_USER).clear();
-  tx.objectStore(STORE_PASSWORDS).clear();
+  const userStore = tx.objectStore(STORE_USER);
+  const passwordStore = tx.objectStore(STORE_PASSWORDS);
+  
+  // Borrar el perfil principal
+  userStore.delete(userId);
+  
+  // Borrar solo las contraseñas pertenecientes a ese usuario
+  const index = passwordStore.index('userId');
   
   return new Promise((resolve, reject) => {
+    const request = index.openKeyCursor(IDBKeyRange.only(userId));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        passwordStore.delete(cursor.primaryKey);
+        cursor.continue();
+      }
+    };
+    request.onerror = () => reject(request.error);
+
     tx.oncomplete = () => {
       db.close();
       resolve();
@@ -328,23 +365,21 @@ export async function exportToKdbxReal(data: { passwords: PasswordEntry[] }, int
   const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(kdbxPassword));
   const db = kdbxweb.Kdbx.create(credentials, 'SecureVault Export');
   
-  try {
-    db.header.setKdf(kdbxweb.Consts.KdfId.Aes);
-  } catch (e) {}
-
   const defaultGroup = db.getDefaultGroup();
   
   for (const p of data.passwords) {
     const entry = db.createEntry(defaultGroup);
     
-    // El objeto fields en kdbxweb es un diccionario en runtime,
-    // pero TS cree que es un Map. Cast to any.
-    const fields = entry.fields as any;
+    // Todos los campos deben ser explícitamente strings y nunca undefined o null según el estándar real.
+    const safeTitle = p.siteName ? String(p.siteName) : 'Desconocido';
+    const safeUser = p.username ? String(p.username) : '';
+    const safeUrl = p.siteUrl ? String(p.siteUrl) : '';
+    const safeNotes = p.group ? `Grupo: ${String(p.group)}` : '';
 
-    fields['Title'] = p.siteName || 'Desconocido';
-    fields['UserName'] = p.username || '';
-    fields['URL'] = p.siteUrl || '';
-    if (p.group) fields['Notes'] = `Grupo: ${p.group}`;
+    entry.fields.set('Title', safeTitle);
+    entry.fields.set('UserName', safeUser);
+    entry.fields.set('URL', safeUrl);
+    entry.fields.set('Notes', safeNotes);
     
     let plainPassword = '';
     try {
@@ -352,10 +387,17 @@ export async function exportToKdbxReal(data: { passwords: PasswordEntry[] }, int
       const salt = user?.masterKeySalt || 'default-salt';
       plainPassword = await decrypt(p.encryptedPassword, p.iv, internalMasterKey, salt);
     } catch (err) {
-      console.warn('Failed to decrypt password for export', err);
+      try {
+        const baseUser = await getUserProfile();
+        const baseSalt = baseUser?.masterKeySalt || 'default-salt';
+        plainPassword = await decrypt(p.encryptedPassword, p.iv, internalMasterKey, baseSalt);
+      } catch (err2) {
+        console.warn('Failed to decrypt password for export even with fallback', err2);
+      }
     }
     
-    fields['Password'] = kdbxweb.ProtectedValue.fromString(plainPassword);
+    // La contraseña al estar en ProtectedValue ya la transforma de manera segura:
+    entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(plainPassword || ''));
   }
   
   const arrayBuffer = await db.save();
@@ -379,24 +421,11 @@ export async function importFromKdbxReal(file: File, kdbxPassword: string): Prom
   function traverse(group: kdbxweb.KdbxGroup) {
     if (group.entries && Array.isArray(group.entries)) {
       for (const entry of group.entries) {
-        // En kdbxweb `fields` puede ser un objeto dict dict ({[key: string]: KdbxField}), no un Map.
-        // Pero en TypeScript está tipado como Map. Usamos un cast.
-        const fields = entry.fields as any;
-        
-        // Extraemos variables (intentando dict primero, y fallback a Map.get por seguridad cruzada)
-        let fTitle = fields['Title'];
-        let fUser = fields['UserName'];
-        let fPass = fields['Password'];
-        let fUrl = fields['URL'];
-        let fNotes = fields['Notes'];
-
-        if (fTitle === undefined && typeof entry.fields.get === 'function') {
-           fTitle = entry.fields.get('Title');
-           fUser = entry.fields.get('UserName');
-           fPass = entry.fields.get('Password');
-           fUrl = entry.fields.get('URL');
-           fNotes = entry.fields.get('Notes');
-        }
+        let fTitle = entry.fields.get('Title');
+        let fUser = entry.fields.get('UserName');
+        let fPass = entry.fields.get('Password');
+        let fUrl = entry.fields.get('URL');
+        let fNotes = entry.fields.get('Notes');
 
         const title = fTitle ? fTitle.toString() : '';
         const username = fUser ? fUser.toString() : '';

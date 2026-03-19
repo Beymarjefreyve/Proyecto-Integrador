@@ -113,7 +113,7 @@ function App() {
 
   const handleSavePassword = async (username: string, password: string, siteProps: any) => {
     try {
-      const user = await getUserProfile();
+      const user = await getUserProfile(userId);
       const salt = user?.masterKeySalt || 'default-salt';
       
       const { encrypted, iv } = await encrypt(password, MASTER_KEY, salt);
@@ -155,7 +155,27 @@ function App() {
   const handleDeleteAccount = async () => {
     if (window.confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción borrará todas tus contraseñas y datos permanentemente y no se puede deshacer.")) {
       try {
-        await deleteUserProfile();
+        let resolvedUserId = userId;
+        
+        // Purge biometric face data from localStorage aggressively
+        const usersData = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
+        
+        // If state was lost and we have 'user-1', try to find the real UUID by name in localStorage
+        if (resolvedUserId === 'user-1' && loggedUserName !== 'Usuario') {
+          const matched = usersData.find((u: any) => u.name === loggedUserName);
+          if (matched) resolvedUserId = matched.id;
+        }
+
+        // Remove ALL entries that match the ID or the Name (to clear duplicates/orphans)
+        const updatedUsers = usersData.filter((u: any) => 
+          u.id !== resolvedUserId && 
+          (loggedUserName === 'Usuario' ? true : u.name !== loggedUserName)
+        );
+        localStorage.setItem("secureFace_users", JSON.stringify(updatedUsers));
+
+        // Delete from IndexedDB using the resolved ID
+        await deleteUserProfile(resolvedUserId);
+
         navigate('/');
       } catch (err) {
         console.error('Error eliminando la cuenta', err);
@@ -387,7 +407,7 @@ function App() {
               </div>
             </>
           ) : (
-            <SettingsView masterKey={MASTER_KEY} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />
+            <SettingsView masterKey={MASTER_KEY} userId={userId} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />
           )}
         </div>
       </main>

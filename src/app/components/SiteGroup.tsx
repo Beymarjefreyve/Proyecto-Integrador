@@ -17,10 +17,20 @@ export function SiteGroup({ groupData, masterKey, onDelete }: SiteGroupProps) {
 
   const handleCopy = async (entry: PasswordEntry) => {
     try {
-      const user = await getUserProfile();
-      const salt = user?.masterKeySalt || 'default-salt'; // Fallback
+      const user = await getUserProfile(entry.userId);
+      const salt = user?.masterKeySalt || 'default-salt';
       
-      const decrypted = await decrypt(entry.encryptedPassword, entry.iv, masterKey, salt);
+      let decrypted = '';
+      try {
+        decrypted = await decrypt(entry.encryptedPassword, entry.iv, masterKey, salt);
+      } catch (err) {
+        // Fallback por si fue encriptada usando el perfil global antes de arreglar
+        // la propagación dinámica del ID del dashboard.
+        const baseUser = await getUserProfile();
+        const baseSalt = baseUser?.masterKeySalt || 'default-salt';
+        decrypted = await decrypt(entry.encryptedPassword, entry.iv, masterKey, baseSalt);
+      }
+      
       await navigator.clipboard.writeText(decrypted);
       
       setCopiedId(entry.id);

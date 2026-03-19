@@ -6,11 +6,12 @@ import { PasswordEntry, UserProfile } from '../types';
 
 interface SettingsViewProps {
   masterKey: string;
+  userId: string;
   onLogout?: () => void;
   onDeleteAccount?: () => void;
 }
 
-export function SettingsView({ masterKey, onLogout, onDeleteAccount }: SettingsViewProps) {
+export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount }: SettingsViewProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -33,7 +34,7 @@ export function SettingsView({ masterKey, onLogout, onDeleteAccount }: SettingsV
     try {
       setExportModalOpen(false);
       setIsExporting(true);
-      const data = await getAllData('user-1');
+      const data = await getAllData(userId);
       
       const blob = await exportToKdbxReal(data, masterKey, modalPassword);
       
@@ -75,7 +76,7 @@ export function SettingsView({ masterKey, onLogout, onDeleteAccount }: SettingsV
       
       const rawEntries = await importFromKdbxReal(pendingImportFile, modalPassword);
       
-      const user = await getUserProfile('user-1');
+      const user = await getUserProfile(userId);
       const salt = user?.masterKeySalt || 'default-salt';
       
       const importedPasswords: PasswordEntry[] = [];
@@ -83,7 +84,7 @@ export function SettingsView({ masterKey, onLogout, onDeleteAccount }: SettingsV
         const { encrypted, iv } = await encrypt(entry.password, masterKey, salt);
         importedPasswords.push({
           id: crypto.randomUUID(),
-          userId: 'user-1',
+          userId: userId,
           siteId: 'custom',
           siteName: entry.title || 'Importado',
           siteUrl: entry.url || '',
