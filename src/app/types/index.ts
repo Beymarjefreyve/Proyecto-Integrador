@@ -13,6 +13,7 @@ export type SiteCategory =
   | 'gaming'
   | 'development'
   | 'education'
+  | 'ai'
   | 'other';
 
 /** Sitio del catálogo predefinido */

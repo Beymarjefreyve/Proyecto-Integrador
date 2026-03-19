@@ -3,6 +3,7 @@ import { Download, Upload, Save, ShieldAlert, LogOut, Key } from 'lucide-react';
 import { getAllData, exportToKdbxReal, importFromKdbxReal, importAllData, getUserProfile } from '../lib/database';
 import { encrypt } from '../lib/crypto';
 import { PasswordEntry, UserProfile } from '../types';
+import { sitesCatalog } from '../data/sites-catalog';
 
 interface SettingsViewProps {
   masterKey: string;
@@ -82,18 +83,37 @@ export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount }: S
       const importedPasswords: PasswordEntry[] = [];
       for (const entry of rawEntries) {
         const { encrypted, iv } = await encrypt(entry.password, masterKey, salt);
+        
+        // Generar un siteId basado en el título para evitar que todo se agrupe en uno solo
+        const siteName = entry.title || 'Importado';
+        const siteId = siteName.toLowerCase().replace(/\s+/g, '-').trim() || 'custom';
+        
+        // Intentar recuperar el grupo desde las notas (ej. "Grupo: Personal")
+        let groupName = 'Importado';
+        if (entry.notes) {
+          const groupMatch = entry.notes.match(/Grupo:\s*(.+)/i);
+          if (groupMatch && groupMatch[1]) {
+            groupName = groupMatch[1].trim();
+          }
+        }
+
+        // Intentar recuperar metadatos del catálogo (icono, color)
+        const catalogSite = sitesCatalog.find(s => s.id === siteId || s.name.toLowerCase() === siteName.toLowerCase());
+        const siteIcon = catalogSite?.icon || '';
+        const siteColor = catalogSite?.color || '#64748b';
+
         importedPasswords.push({
           id: crypto.randomUUID(),
           userId: userId,
-          siteId: 'custom',
-          siteName: entry.title || 'Importado',
+          siteId: siteId,
+          siteName: siteName,
           siteUrl: entry.url || '',
-          siteIcon: '',
-          siteColor: '#64748b',
+          siteIcon: siteIcon,
+          siteColor: siteColor,
           username: entry.username || '',
           encryptedPassword: encrypted,
           iv: iv,
-          group: 'Importado',
+          group: groupName,
           strength: 'medium',
           createdAt: Date.now(),
           updatedAt: Date.now(),
