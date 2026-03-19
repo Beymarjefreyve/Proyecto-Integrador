@@ -1,1 +1,0 @@
-Fix: KDBX grouping, site icons restoration and catalog expansion (30+ sites)
