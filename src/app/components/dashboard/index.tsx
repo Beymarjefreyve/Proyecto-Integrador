@@ -20,6 +20,7 @@ import { SiteCatalogModal } from '../SiteCatalogModal';
 import { PasswordGeneratorModal } from '../PasswordGeneratorModal';
 import { SiteGroup } from '../SiteGroup';
 import { SettingsView } from '../SettingsView';
+import { FaceIDSettingsView } from '../FaceIDSettingsView';
 import { CatalogSite, PasswordEntry, SiteGroupData } from '../../types';
 import { 
   getAllPasswordEntries, 
@@ -28,12 +29,13 @@ import {
   getUserProfile, 
   saveUserProfile,
   deletePasswordEntry,
-  deleteUserProfile
+  deleteUserProfile,
+  importVaultForUser
 } from '../../lib/database';
-import { encrypt, generateSalt, hashMasterPassword } from '../../lib/crypto';
+import { encrypt, decrypt, generateSalt, hashMasterPassword } from '../../lib/crypto';
+import { api } from '../../lib/api';
 
-// Clave maestra temporal estática (hasta que se implemente el login)
-const MASTER_KEY = 'mi-clave-maestra-super-secreta';
+// Eliminar clave maestra estática, recibiremos location.state.masterPassword
 
 interface NavItem {
   name: string;
@@ -45,7 +47,7 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const loggedUserName = location.state?.userName || 'Usuario';
-  const userId = location.state?.userId || 'user-1';
+  const userId = location.state?.userId;
 
   const [activeSection, setActiveSection] = useState('Dashboard');
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
@@ -56,13 +58,55 @@ function App() {
   const [passwords, setPasswords] = useState<PasswordEntry[]>([]);
   const [lastSync, setLastSync] = useState<Date>(new Date());
 
-  // Inicializar DB y cargar contraseñas
+  // Receive the master password from login routing
+  const MASTER_KEY = location.state?.masterPassword;
+
+  // Redirigir a login si perdemos la identidad o la clave
+  useEffect(() => {
+    if ((!MASTER_KEY || !userId) && activeSection !== 'Configuración') {
+      console.warn("Missing authentication data, redirecting to login.");
+      navigate('/');
+    }
+  }, [MASTER_KEY, userId, navigate, activeSection]);
+
+  // Sincronizar hacia el backend
+  const syncPushToBackend = async () => {
+    if (!MASTER_KEY || !userId) return;
+    try {
+      const dbPasswords = await getAllPasswordEntries(userId);
+      // Fetch current version to avoid conflict and get the true Cloud Salt
+      const remoteVault = await api.getVault();
+      const salt = remoteVault.salt || 'default-salt';
+      
+      const payload = JSON.stringify({ passwords: dbPasswords });
+      const { encrypted, iv } = await encrypt(payload, MASTER_KEY, salt);
+      
+      const payloadString = `${iv}:${encrypted}`;
+      await api.updateVault(payloadString, remoteVault.version + 1);
+      setLastSync(new Date());
+    } catch (err) {
+      console.error('Error al subir bóveda al servidor:', err);
+    }
+  };
+
+  // Solo recarga datos locales sin tocar el API
+  const loadLocalData = async () => {
+    if (!userId) return;
+    try {
+      const entries = await getAllPasswordEntries(userId);
+      setPasswords(entries);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Inicializar DB y cargar contraseñas desde el Cloud
   const loadData = async () => {
+    if (!userId || !MASTER_KEY) return;
     try {
       let user = await getUserProfile(userId);
       if (!user) {
-        // Migration check: if there's only one user in localStorage, 
-        // maybe we can reuse their profile or just create a new one for this ID
+        // Create local profile linked to Backend UUID
         const salt = generateSalt();
         const hash = await hashMasterPassword(MASTER_KEY, salt);
         user = {
@@ -77,24 +121,31 @@ function App() {
       }
 
       const entries = await getAllPasswordEntries(userId);
+
+      setPasswords(entries);
       
-      // Basic Migration: If this user has 0 passwords but there are "old" passwords 
-      // with no userId (undefined), assign them to this user if they are the first user.
-      if (entries.length === 0) {
-        const allPossible = await getAllPasswordEntries('user-1'); // Check default user-1
-        if (allPossible.length > 0) {
-          for (const entry of allPossible) {
-            await updatePasswordEntry(entry.id, { userId: userId });
-          }
-          const migrated = await getAllPasswordEntries(userId);
-          setPasswords(migrated);
-        } else {
-          setPasswords(entries);
+      // Sincronizar desde el backend
+      try {
+        const remoteVault = await api.getVault();
+        console.log("Remote vault synced:", remoteVault.version);
+        // Only if remote has data
+        if (remoteVault.encrypted_vault) {
+            const [remoteIv, remoteEnc] = remoteVault.encrypted_vault.split(':');
+            if (remoteIv && remoteEnc) {
+              // USAR la sal del backend que es la original correcta en lugar de la local improvisada
+              const decryptedJson = await decrypt(remoteEnc, remoteIv, MASTER_KEY, remoteVault.salt || user.masterKeySalt);
+              const remoteData = JSON.parse(decryptedJson);
+              if (remoteData.passwords) {
+                setPasswords(remoteData.passwords);
+                // Save the downloaded vault directly into IndexedDB mapped specifically for this user
+                await importVaultForUser(userId, remoteData.passwords);
+              }
+            }
         }
-      } else {
-        setPasswords(entries);
+      } catch (fetchErr) {
+        console.log("No remoto o error descifrando remoto (tal vez primer login).", fetchErr);
       }
-      
+
       setLastSync(new Date());
     } catch (err) {
       console.error('Error cargando datos de DB', err);
@@ -102,8 +153,10 @@ function App() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (userId && MASTER_KEY) {
+      loadData();
+    }
+  }, [userId, MASTER_KEY]);
 
   const handleSelectSite = (site: CatalogSite | { id: string, name: string, url: string, icon: string, category?: string, color?: string }) => {
     setSelectedSite(site);
@@ -112,6 +165,7 @@ function App() {
   };
 
   const handleSavePassword = async (username: string, password: string, siteProps: any) => {
+    if (!userId || !MASTER_KEY) return;
     try {
       const user = await getUserProfile(userId);
       const salt = user?.masterKeySalt || 'default-salt';
@@ -132,7 +186,8 @@ function App() {
         strength: 'strong'
       });
 
-      await loadData();
+      await loadLocalData();
+      await syncPushToBackend();
       
       setIsGeneratorOpen(false);
       setSelectedSite(null);
@@ -142,10 +197,13 @@ function App() {
   };
 
   const handleDeletePassword = async (id: string) => {
+    if (!userId) return;
     try {
       if (window.confirm("¿Estás seguro de que quieres eliminar esta contraseña?")) {
         await deletePasswordEntry(id);
-        await loadData();
+        const latestData = await getAllPasswordEntries(userId);
+        setPasswords(latestData);
+        await syncPushToBackend();
       }
     } catch (err) {
       console.error('Error eliminando contraseña', err);
@@ -153,32 +211,30 @@ function App() {
   };
 
   const handleDeleteAccount = async () => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción borrará todas tus contraseñas y datos permanentemente y no se puede deshacer.")) {
+    if (!userId) return;
+    if (window.confirm("¿Estás seguro de que quieres eliminar tu cuenta? Esta acción borrará todas tus contraseñas y datos permanentemente de este dispositivo y de la nube.")) {
       try {
-        let resolvedUserId = userId;
-        
-        // Purge biometric face data from localStorage aggressively
-        const usersData = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
-        
-        // If state was lost and we have 'user-1', try to find the real UUID by name in localStorage
-        if (resolvedUserId === 'user-1' && loggedUserName !== 'Usuario') {
-          const matched = usersData.find((u: any) => u.name === loggedUserName);
-          if (matched) resolvedUserId = matched.id;
-        }
+        // 1. Terminate on Cloud servers FIRST while we still have the token
+        await api.deleteAccount();
 
-        // Remove ALL entries that match the ID or the Name (to clear duplicates/orphans)
-        const updatedUsers = usersData.filter((u: any) => 
-          u.id !== resolvedUserId && 
-          (loggedUserName === 'Usuario' ? true : u.name !== loggedUserName)
-        );
+        // 2. Clear local biometric face data
+        const usersData = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
+        const updatedUsers = usersData.filter((u: any) => u.id !== userId);
         localStorage.setItem("secureFace_users", JSON.stringify(updatedUsers));
 
-        // Delete from IndexedDB using the resolved ID
-        await deleteUserProfile(resolvedUserId);
+        // 3. Delete from Frontend IndexedDB
+        await deleteUserProfile(userId);
 
+        // 4. Final logout cleanup (tokens already cleared by api.deleteAccount in our latest update)
         navigate('/');
       } catch (err) {
-        console.error('Error eliminando la cuenta', err);
+        console.error('Error eliminando la cuenta en el servidor, procediendo con limpieza local...', err);
+        // Fallback cleanup if server call fails
+        const usersData = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
+        localStorage.setItem("secureFace_users", JSON.stringify(usersData.filter((u: any) => u.id !== userId)));
+        await deleteUserProfile(userId);
+        api.logout();
+        navigate('/');
       }
     }
   };
@@ -212,10 +268,12 @@ function App() {
 
   const navItems: NavItem[] = [
     { name: 'Dashboard', icon: LayoutDashboard, active: activeSection === 'Dashboard' },
+    { name: 'Face ID', icon: Shield, active: activeSection === 'Face ID' },
     { name: 'Configuración', icon: Settings, active: activeSection === 'Configuración' },
   ];
 
   const handleLogout = () => {
+    api.logout();
     navigate('/');
   };
 
@@ -406,8 +464,19 @@ function App() {
                 </div>
               </div>
             </>
+          ) : activeSection === 'Face ID' ? (
+             <FaceIDSettingsView masterKey={MASTER_KEY} userId={userId} />
           ) : (
-            <SettingsView masterKey={MASTER_KEY} userId={userId} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} />
+            <SettingsView 
+              masterKey={MASTER_KEY} 
+              userId={userId} 
+              onLogout={handleLogout} 
+              onDeleteAccount={handleDeleteAccount}
+              onImportSuccess={async () => {
+                await loadLocalData();
+                await syncPushToBackend();
+              }}
+            />
           )}
         </div>
       </main>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Download, Upload, Save, ShieldAlert, LogOut, Key } from 'lucide-react';
-import { getAllData, exportToKdbxReal, importFromKdbxReal, importAllData, getUserProfile } from '../lib/database';
+import { getAllData, exportToKdbxReal, importFromKdbxReal, bulkAddPasswordEntries, getUserProfile } from '../lib/database';
 import { encrypt } from '../lib/crypto';
 import { PasswordEntry, UserProfile } from '../types';
 import { sitesCatalog } from '../data/sites-catalog';
@@ -10,9 +10,10 @@ interface SettingsViewProps {
   userId: string;
   onLogout?: () => void;
   onDeleteAccount?: () => void;
+  onImportSuccess?: () => void;
 }
 
-export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount }: SettingsViewProps) {
+export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount, onImportSuccess }: SettingsViewProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -121,9 +122,13 @@ export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount }: S
         });
       }
 
-      await importAllData({ passwords: importedPasswords });
+      await bulkAddPasswordEntries(importedPasswords);
       
-      showMessage('success', 'Bóveda importada exitosamente desde KDBX. Recarga para ver los cambios.');
+      if (onImportSuccess) {
+        onImportSuccess();
+      }
+      
+      showMessage('success', 'Bóveda importada exitosamente desde KDBX. Las cuentas se han sumado a tu lista actual.');
     } catch (err: any) {
       console.error(err);
       showMessage('error', `Error al importar: ${err.message || 'Contraseña incorrecta o archivo inválido'}.`);

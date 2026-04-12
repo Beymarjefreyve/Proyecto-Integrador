@@ -4,6 +4,10 @@ import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import * as faceapi from "face-api.js";
 import { loadModels } from "../utils/loadModels";
+import { decrypt } from "../lib/crypto";
+
+const DEVICE_STATIC_KEY = "device-static-face-auth-key-3920";
+const DEVICE_STATIC_SALT = "c3RhdGljLXNhbHQtb2s=";
 
 export function FaceScan() {
   const navigate = useNavigate();
@@ -25,19 +29,21 @@ export function FaceScan() {
         if (!isActive) return;
         setModelsLoaded(true);
 
-        const usersData = JSON.parse(localStorage.getItem("secureFace_users") || "[]");
-        if (usersData.length === 0) {
-          setScanMessage("No hay usuarios registrados. Regístrate primero.");
-          setTimeout(() => navigate("/register"), 3000);
+        const usersData = JSON.parse(localStorage.getItem('secureFace_users') || '[]');
+        const usersWithDescriptors = usersData.filter((u: any) => u.descriptors && u.descriptors.length > 0);
+
+        if (usersWithDescriptors.length === 0) {
+          setScanMessage("Aún no se ha añadido un perfil biométrico.");
+          setTimeout(() => navigate(-1), 2500);
           return;
         }
 
-        const labeledDescriptors = usersData.map((user: any) => {
-          const descriptors = user.descriptors.map((d: any) => new Float32Array(d));
-          return new faceapi.LabeledFaceDescriptors(user.name, descriptors);
+        const labeledDescriptors = usersWithDescriptors.map((u: any) => {
+          const descriptors = u.descriptors.map((d: number[]) => new Float32Array(d));
+          return new faceapi.LabeledFaceDescriptors(u.name, descriptors);
         });
 
-        const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.5);
+        const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
 
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         if (videoRef.current && isActive) {
@@ -61,13 +67,32 @@ export function FaceScan() {
                 if (match.label !== "unknown") {
                   const matchedUser = usersData.find((u: any) => u.name === match.label);
                   const userId = matchedUser?.id || "unknown-user";
-                  
                   const confidence = Math.round((1 - match.distance) * 100 * 10) / 10;
+                  
+                  let unlockedPassword = null;
+                  if (matchedUser?.wrappedMasterKey) {
+                     const [iv, encrypted] = matchedUser.wrappedMasterKey.split(":");
+                     if (iv && encrypted) {
+                       try {
+                         unlockedPassword = await decrypt(encrypted, iv, DEVICE_STATIC_KEY, DEVICE_STATIC_SALT);
+                       } catch (e) {
+                         console.error("Error al descifrar master key con faceId", e);
+                       }
+                     }
+                  }
+
+                  if (!unlockedPassword) {
+                     setScanMessage("Error interno: Contraseña maestra no configurada correctamente.");
+                     setTimeout(() => navigate("/error"), 2000);
+                     return;
+                  }
+
                   setProgress(100);
                   setScanning(false);
                   setScanMessage(`¡Rostro reconocido! Bienvenido.`);
+                  
                   setTimeout(() => {
-                    navigate("/success", { state: { userId, userName: match.label, confidence } });
+                    navigate("/success", { state: { userId, userName: match.label, confidence, masterPassword: unlockedPassword, isBiometric: true } });
                   }, 1500);
                   return; // Stop scanning
                 } else {

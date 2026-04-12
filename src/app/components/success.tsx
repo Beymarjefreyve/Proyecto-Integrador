@@ -5,9 +5,10 @@ import { CheckCircle, ArrowRight } from "lucide-react";
 export function Success() {
   const navigate = useNavigate();
   const location = useLocation();
-  const userName = location.state?.userName || "Usuario Demo";
-  const userId = location.state?.userId || "user-1";
+  const userName = location.state?.userName || "Usuario";
+  const userId = location.state?.userId; // Do not use fallback to avoid isolation leaks
   const confidence: number | null = location.state?.confidence ?? null;
+  const isBiometric = location.state?.isBiometric ?? true;
   const authTime = new Date();
 
   return (
@@ -129,7 +130,7 @@ export function Success() {
 
                 <div className="flex items-center justify-between">
                   <span className="text-[#F1F5F9]/70 text-sm">Método:</span>
-                  <span className="text-[#F1F5F9] font-medium">Face ID AI</span>
+                  <span className="text-[#F1F5F9] font-medium">{isBiometric ? 'Face ID AI' : 'Contraseña Maestra'}</span>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -176,7 +177,7 @@ export function Success() {
             transition={{ delay: 1 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => navigate("/dashboard", { state: { userId, userName } })}
+            onClick={() => navigate("/dashboard", { state: { userId, userName, masterPassword: location.state?.masterPassword } })}
             className="w-full bg-gradient-to-r from-[#00FF9D] to-[#00D4FF] text-[#0F172A] py-4 rounded-xl flex items-center justify-center gap-3 shadow-lg shadow-[#00FF9D]/30 hover:shadow-[#00FF9D]/50 transition-all"
           >
             <span className="text-lg">Continuar</span>

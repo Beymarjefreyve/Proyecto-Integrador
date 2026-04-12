@@ -352,6 +352,68 @@ export async function importAllData(data: {
   });
 }
 
+/** Importa datos sumándolos a los existentes sin borrar nada (Bulk Add) */
+export async function bulkAddPasswordEntries(passwords: PasswordEntry[]): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(STORE_PASSWORDS, 'readwrite');
+  const store = tx.objectStore(STORE_PASSWORDS);
+
+  for (const entry of passwords) {
+    store.add(entry);
+  }
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+
+/** Importa datos reemplazando unicamente las de un usuario en especifico (uso para sync API) */
+export async function importVaultForUser(userId: string, passwords: PasswordEntry[]): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(STORE_PASSWORDS, 'readwrite');
+  const store = tx.objectStore(STORE_PASSWORDS);
+  const index = store.index('userId');
+  
+  // Limpiar primero las existentes del usuario
+  const request = index.openKeyCursor(IDBKeyRange.only(userId));
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        resolve(); // Termina
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  // Insertar las nuevas sincronizadas
+  for (const entry of passwords) {
+    store.add(entry);
+  }
+  
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
 /** Exportar datos a un Blob en formato KDBX (Real) */
 export interface RawKdbxEntry {
   title: string;
