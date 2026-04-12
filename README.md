@@ -49,6 +49,22 @@ Proyecto-Integrador/
 └── README.md                    # Documentación técnica
 ```
 
+## 📊 Arquitectura de Datos
+
+El sistema utiliza un esquema híbrido para balancear la privacidad local con la disponibilidad en la nube:
+
+### 1. Base de Datos Local (IndexedDB)
+Optimizada para la soberanía del usuario y acceso offline:
+- **Store `users`**: Almacena descriptores biométricos (Face ID) y el salt de derivación local.
+- **Store `passwords`**: Contiene las entradas de la bóveda, aisladas por `userId` y cifradas con AES-GCM.
+
+### 2. Base de Datos Central (PostgreSQL)
+Gestiona la identidad y la persistencia multi-dispositivo:
+- **Modelo `User`**: Perfil central y credenciales de acceso.
+- **Modelo `Vault`**: Almacena el blob cifrado de la bóveda y el salt global del servidor.
+- **Modelo `Device`**: Seguimiento de sesiones y hardware vinculado.
+- **Borrado en Cascada**: Al eliminar una cuenta, el servidor purga automáticamente todas las bóvedas y dispositivos asociados.
+
 ## 🚀 Instalación y Ejecución
 
 ### 1. Requisitos Previos
