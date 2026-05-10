@@ -40,14 +40,48 @@ export function SettingsView({ masterKey, userId, onLogout, onDeleteAccount, onI
       
       const blob = await exportToKdbxReal(data, masterKey, modalPassword);
       
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SecureVault_Backup_${new Date().toISOString().split('T')[0]}.kdbx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const fileName = `SecureVault_Backup_${new Date().toISOString().split('T')[0]}.kdbx`;
+      
+      try {
+        // Primary: File System Access API (garantiza el nombre de archivo en navegadores modernos)
+        if ('showSaveFilePicker' in window) {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'KeePass Database',
+              accept: { 'application/x-keepass2': ['.kdbx'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } else {
+          throw new Error('showSaveFilePicker no soportado'); // Forzar fallback
+        }
+      } catch (saveErr: any) {
+        if (saveErr.name === 'AbortError') {
+          // El usuario canceló el diálogo de guardar, no hacemos nada.
+          setIsExporting(false);
+          setModalPassword('');
+          return;
+        }
+        
+        // Fallback: método tradicional
+        console.log("Fallback a descarga tradicional", saveErr);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Delay mayor para evitar revocación antes de que el navegador procese el clic
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 3000);
+      }
       
       showMessage('success', 'Base de datos KDBX exportada exitosamente.');
     } catch (err) {
