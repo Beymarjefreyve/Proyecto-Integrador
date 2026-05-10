@@ -425,9 +425,11 @@ export interface RawKdbxEntry {
 
 export async function exportToKdbxReal(data: { passwords: PasswordEntry[] }, internalMasterKey: string, kdbxPassword: string): Promise<Blob> {
   const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(kdbxPassword));
+  console.log('Iniciando exportación KDBX con kdbxweb...');
   const db = kdbxweb.Kdbx.create(credentials, 'SecureVault Export');
   
   const defaultGroup = db.getDefaultGroup();
+  console.log(`Exportando ${data.passwords.length} entradas...`);
   
   for (const p of data.passwords) {
     const entry = db.createEntry(defaultGroup);
@@ -463,7 +465,7 @@ export async function exportToKdbxReal(data: { passwords: PasswordEntry[] }, int
   }
   
   const arrayBuffer = await db.save();
-  return new Blob([arrayBuffer], { type: 'application/octet-stream' });
+  return new Blob([arrayBuffer], { type: 'application/x-keepass2' });
 }
 
 /** Importar datos desde un archivo KDBX (Real) */
